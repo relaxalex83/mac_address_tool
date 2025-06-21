@@ -21,7 +21,7 @@
 
 1. Скачайте архив проекта или клонируйте репозиторий (если используете Git):
    ```
-   git clone https://github.com/relaxalex83/mac_address_finder.git
+   git clone https://github.com/relaxalex83/mac_address_tool
    ```
 2. Перейдите в директорию проекта:
    ```
