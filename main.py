@@ -6,9 +6,21 @@ import tabulate
 import getpass
 import numpy as np
 from colorama import Fore, Style, init
+import re
+from collections import Counter
+
 
 # Initialize colorama
 init()
+firstpassword = getpass.getpass(f"{Fore.YELLOW}Введите пароль пользователя user для подключения к коммутаторам: {Style.RESET_ALL}")
+UPLINK_VLAN_1 = "1"
+UPLINK_VLAN = "2"
+
+def normalize_mac(mac: str) -> str:
+    return re.sub(r'[^0-9A-Fa-f]', '', mac).lower()
+
+def port_key(row):
+    return (row[0], row[2], row[4])
 
 def read_dhcp_servers(filename):
     with open(filename, "r") as file:
@@ -71,15 +83,6 @@ def search_ip_City19():
     else:
         print(f"{Fore.RED}IP адрес для MAC адреса {mac_address_full} не найден.{Style.RESET_ALL}")
 
-def search_ip_City20():
-    mac_address_full = input(f"{Fore.CYAN}Введите полный MAC адрес или скопируйте из таблицы: {Style.RESET_ALL}").strip()
-    dhcp_servers = read_dhcp_servers("dhcp_servers_City20.txt")
-    PC_ip = set_mac_address_on_dhcp_servers(mac_address_full, dhcp_servers)
-    if PC_ip:
-        print(f"{Fore.CYAN}IP адрес для MAC адреса {mac_address_full}: {PC_ip}{Style.RESET_ALL}")
-    else:
-        print(f"{Fore.RED}IP адрес для MAC адреса {mac_address_full} не найден.{Style.RESET_ALL}")
-
 def connect_to_switch_search_double_cisco(switch_ip, username, password, table, pbar):
     try:
         net_connect = ConnectHandler(ip=switch_ip, device_type='cisco_ios', username=username, password=password)
@@ -98,116 +101,27 @@ def connect_to_switch_search_double_cisco(switch_ip, username, password, table, 
                     table.append([switch_ip, elements[1], elements[0], elements[2], elements[3], elements[3]])
     pbar.update(1)
 
-def search_double_ports_City17_cisco():
-        username = input(f"{Fore.YELLOW}Enter Username: {Style.RESET_ALL}")
-        password = getpass.getpass(f"{Fore.YELLOW}Enter Password: {Style.RESET_ALL}")
-        table = []
-        with open("ip_list_City17_cisco.txt", "r") as f:
-            ip_list = f.read().splitlines()
-
-        pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
-
-        threads = []
-        for switch_ip in ip_list:
-            t = Thread(target=connect_to_switch_search_double_cisco, args=(switch_ip, username, password, table, pbar))
-            threads.append(t)
-            t.start()
-
-        for t in threads:
-            t.join()
-        pbar.close()
-
-        sorted_table = sorted(table, key=lambda x: x[4])
-
-        # Фильтруем дополнительные аплинки, чтобы исключить их из поиска
-        matrix_fil = np.array(sorted_table)
-        result_fil = matrix_fil.copy()
-        for i in range(len(result_fil)):
-            a = '10.50.2.16'
-            b = 'Gi1/0/47'
-            if result_fil[i][0] == a and result_fil[i][4] == b:
-                result_fil[i][4] = "UPLINK"
-
-        sorted_table = list(filter(lambda x: 'UPLINK' not in x[4], result_fil))
-
-        matrix = np.array(sorted_table)
-        result = matrix.copy()
-        for i in range(len(matrix)):
-            a = matrix[i][4]
-            b = matrix[i][2]
-            c = matrix[i][0]
-            if a != matrix[i - 1][4] and b != matrix[i - 1][2] and c != matrix[i - 1][0]:
-                result[i][4] = a
-            if a == matrix[i - 1][4] and b == matrix[i - 1][2] and c == matrix[i - 1][0]:
-                result[i -1][4] = "DOUBLE"
-                result[i][4] = "DOUBLE"
-
-        print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
-        sorted_result = sorted(result, key=lambda x: x[0])
-        sorted_result = list(filter(lambda x: 'DOUBLE' in x[4], sorted_result))
-
-        print(tabulate.tabulate(sorted_result, headers="firstrow", tablefmt="fancy_grid"))
-
-def connect_to_switch_with_mac_cisco(switch_ip, username, password, mac_address_cisco, table, pbar):
+def connect_to_switch_with_mac_cisco(switch_ip, username, password, table, pbar):
     try:
         net_connect = ConnectHandler(ip=switch_ip, device_type='cisco_ios', username=username, password=password)
-        output = net_connect.send_command(f"show mac address-table | include {mac_address_cisco}")
+        output = net_connect.send_command(f"show mac address-table")
         net_connect.disconnect()
     except:
-        print(f"{Fore.RED} Не удалось подключиться к указанному IP адресу: {switch_ip}{Style.RESET_ALL}")
+        print(f"{Fore.RED}Не удалось подключиться к указанному IP адресу: {switch_ip}{Style.RESET_ALL}")
         pbar.update(1)
         return
 
     for line in output.split("\n"):
         if "    " in line:
             elements = line.split()
-            if elements[3] not in ["Po1", "Po2", "Po3", "CPU"]:
-                table.append([switch_ip, elements[1], elements[0], elements[3]])
+            if elements[0] not in ["Mac", "Vlan", "----"]:
+                if elements[3] not in ["Po1", "Po2", "Po3", "Po6", "CPU"]:
+                    table.append([switch_ip, elements[1], elements[0], elements[2], elements[3]])
     pbar.update(1)
-
-def search_mac_City17_cisco():
-    username = input(f"{Fore.YELLOW}Введите Username: {Style.RESET_ALL}")
-    password = getpass.getpass(f"{Fore.YELLOW}Введите Password: {Style.RESET_ALL}")
-
-    mac_address_cisco = input(f"{Fore.CYAN}Введите минимум два значения от MAC-адреса устройства: {Style.RESET_ALL}").strip()
-
-    table = [["Switch IP", "MAC Address", "VLAN", "Port"]]
-    with open("ip_list_City17_cisco.txt", "r") as f:
-        ip_list = f.read().splitlines()
-
-    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
-
-    threads = []
-    for switch_ip in ip_list:
-        t = Thread(target=connect_to_switch_with_mac_cisco, args=(switch_ip, username, password, mac_address_cisco, table, pbar))
-        threads.append(t)
-        t.start()
-
-    for t in threads:
-        t.join()
-    pbar.close()
-
-    sorted_table = sorted(table, key=lambda x: x[3])
-
-    # Фильтруем дополнительные аплинки, чтобы исключить их из поиска
-    matrix_fil = np.array(sorted_table)
-    result_fil = matrix_fil.copy()
-    for i in range(len(result_fil)):
-        a = '10.50.2.16'
-        b = 'Gi1/0/47'
-        if result_fil[i][0] == a and result_fil[i][3] == b:
-            result_fil[i][3] = "UPLINK"
-
-    sorted_table = list(filter(lambda x: 'UPLINK' not in x[3], result_fil))
-
-    sorted_result = sorted(sorted_table, key=lambda x: x[0])
-
-    print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
-    print(tabulate.tabulate(sorted_result, headers="firstrow", tablefmt="fancy_grid"))
 
 def connect_to_switch_search_double_H3C(switch_ip, username, password, table, pbar):
     try:
-        net_connect = ConnectHandler(ip=switch_ip, device_type='hp_comware', username=username, password=password)
+        net_connect = ConnectHandler(ip=switch_ip, device_type='generic', username=username, password=password)
         output = net_connect.send_command(f"dis mac-address")
         net_connect.disconnect()
     except:
@@ -224,61 +138,10 @@ def connect_to_switch_search_double_H3C(switch_ip, username, password, table, pb
                     table.append([switch_ip, elements[0], elements[1], elements[2], elements[3], elements[3]])
     pbar.update(1)
 
-def search_double_ports_City17_H3C():
-        username = input(f"{Fore.YELLOW}Enter Username: {Style.RESET_ALL}")
-        password = getpass.getpass(f"{Fore.YELLOW}Enter Password: {Style.RESET_ALL}")
-
-        table = []
-        with open("ip_list_City17_H3C.txt", "r") as f:
-            ip_list = f.read().splitlines()
-
-        pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
-
-        threads = []
-        for switch_ip in ip_list:
-            t = Thread(target=connect_to_switch_search_double_H3C, args=(switch_ip, username, password, table, pbar))
-            threads.append(t)
-            t.start()
-
-        for t in threads:
-            t.join()
-        pbar.close()
-
-        sorted_table = sorted(table, key=lambda x: x[4])
-
-        # Фильтруем дополнительные аплинки, чтобы исключить их из таблицы
-        matrix_fil = np.array(sorted_table)
-        result_fil = matrix_fil.copy()
-        for i in range(len(result_fil)):
-            a = '10.50.2.59'
-            b = 'GE1/0/8'
-            if result_fil[i][0] == a and result_fil[i][4] == b:
-                result_fil[i][4] = "UPLINK"
-
-        sorted_table = list(filter(lambda x: 'UPLINK' not in x[4], result_fil))
-
-        matrix = np.array(sorted_table)
-        result = matrix.copy()
-        for i in range(len(matrix)):
-            a = matrix[i][4]
-            b = matrix[i][2]
-            c = matrix[i][0]
-            if a != matrix[i - 1][4] and b != matrix[i - 1][2] and c != matrix[i - 1][0]:
-                result[i][4] = a
-            if a == matrix[i - 1][4] and b == matrix[i - 1][2] and c == matrix[i - 1][0]:
-                result[i -1][4] = "DOUBLE"
-                result[i][4] = "DOUBLE"
-
-        print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
-        sorted_result = sorted(result, key=lambda x: x[0])
-        sorted_result = list(filter(lambda x: 'DOUBLE' in x[4], sorted_result))
-
-        print(tabulate.tabulate(sorted_result, headers="firstrow", tablefmt="fancy_grid"))
-
-def connect_to_switch_with_mac_H3C(switch_ip, username, password, mac_address_H3C, table, pbar):
+def connect_to_switch_with_mac_H3C(switch_ip, username, password, table, pbar):
     try:
-        net_connect = ConnectHandler(ip=switch_ip, device_type='hp_comware', username=username, password=password)
-        output = net_connect.send_command(f"dis mac-address | include {mac_address_H3C}")
+        net_connect = ConnectHandler(ip=switch_ip, device_type='generic', username=username, password=password)
+        output = net_connect.send_command(f"dis mac-address")
         net_connect.disconnect()
     except:
         print(f"{Fore.RED} Не удалось подключиться к указанному IP адресу: {switch_ip}{Style.RESET_ALL}")
@@ -288,49 +151,30 @@ def connect_to_switch_with_mac_H3C(switch_ip, username, password, mac_address_H3
     for line in output.split("\n"):
         if "    " in line:
             elements = line.split()
-            if elements[0] not in ["MAC Address"]:
-                table.append([switch_ip, elements[0], elements[1], elements[3]])
+            if elements[0] not in ["MAC"]:
+                #Исключаем основные аплинки
+                if elements[3] not in ["BAGG1", "BAGG2", "BAGG3", "BAGG4", "XGE1/0/24", "XGE1/0/52", "XGE1/0/1", "XGE1/0/2", "XGE1/0/3", "XGE1/0/4", "XGE1/0/5", "XGE1/0/6", "XGE1/0/7", "XGE1/0/8"]:
+                    table.append([switch_ip, elements[0], elements[1], elements[2], elements[3]])
     pbar.update(1)
 
-def search_mac_City17_H3C():
-    username = input(f"{Fore.YELLOW}Введите Username: {Style.RESET_ALL}")
-    password = getpass.getpass(f"{Fore.YELLOW}Введите Password: {Style.RESET_ALL}")
+def connect_to_switch_with_mac_H3C_comware(switch_ip, username, password, table, pbar):
+    try:
+        net_connect = ConnectHandler(ip=switch_ip, device_type='hp_comware', username=username, password=password)
+        output = net_connect.send_command(f"dis mac-address")
+        net_connect.disconnect()
+    except:
+        print(f"{Fore.RED} Не удалось подключиться к указанному IP адресу: {switch_ip}{Style.RESET_ALL}")
+        pbar.update(1)
+        return
 
-    mac_address_H3C = input(f"{Fore.CYAN}Введите минимум два значения от MAC-адреса устройства: {Style.RESET_ALL}").strip()
-
-    table = [["Switch IP", "MAC Address", "VLAN", "Port"]]
-    with open("ip_list_City17_H3C.txt", "r") as f:
-        ip_list = f.read().splitlines()
-
-    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
-
-    threads = []
-    for switch_ip in ip_list:
-        t = Thread(target=connect_to_switch_with_mac_H3C, args=(switch_ip, username, password, mac_address_H3C, table, pbar))
-        threads.append(t)
-        t.start()
-
-    for t in threads:
-        t.join()
-    pbar.close()
-
-    sorted_table = sorted(table, key=lambda x: x[3])
-
-    # Фильтруем дополнительные аплинки, чтобы исключить их из таблицы
-    matrix_fil = np.array(sorted_table)
-    result_fil = matrix_fil.copy()
-    for i in range(len(result_fil)):
-        a = '10.50.2.59'
-        b = 'GE1/0/8'
-        if result_fil[i][0] == a and result_fil[i][3] == b:
-            result_fil[i][3] = "UPLINK"
-
-    sorted_table = list(filter(lambda x: 'UPLINK' not in x[3], result_fil))
-
-    sorted_result = sorted(sorted_table, key=lambda x: x[0])
-
-    print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
-    print(tabulate.tabulate(sorted_result, headers="firstrow", tablefmt="fancy_grid"))
+    for line in output.split("\n"):
+        if "    " in line:
+            elements = line.split()
+            if elements[0] not in ["MAC"]:
+                #Исключаем основные аплинки
+                if elements[3] not in ["BAGG1", "BAGG2", "BAGG3", "BAGG4", "XGE1/0/24", "XGE1/0/52", "XGE1/0/1", "XGE1/0/2", "XGE1/0/3", "XGE1/0/4", "XGE1/0/5", "XGE1/0/6", "XGE1/0/7", "XGE1/0/8"]:
+                    table.append([switch_ip, elements[0], elements[1], elements[2], elements[3]])
+    pbar.update(1)
 
 def connect_to_switch_search_double_DLINK(switch_ip, username, password, table, pbar):
     try:
@@ -353,10 +197,10 @@ def connect_to_switch_search_double_DLINK(switch_ip, username, password, table, 
                             table.append([switch_ip, elements[2], elements[0], elements[1], elements[3], elements[3]])
     pbar.update(1)
 
-def connect_to_switch_with_mac_DLINK(switch_ip, username, password, mac_address_DLINK, table, pbar):
+def connect_to_switch_with_mac_DLINK(switch_ip, username, password, table, pbar):
     try:
         net_connect = ConnectHandler(ip=switch_ip, device_type='dlink_ds', username=username, password=password)
-        output = net_connect.send_command(f"show fdb mac_address {mac_address_DLINK}")
+        output = net_connect.send_command(f"show fdb")
         net_connect.disconnect()
     except:
         print(f"{Fore.RED} Не удалось подключиться к указанному IP адресу: {switch_ip}{Style.RESET_ALL}")
@@ -373,10 +217,197 @@ def connect_to_switch_with_mac_DLINK(switch_ip, username, password, mac_address_
                         table.append([switch_ip, elements[2], elements[0], elements[1], elements[3]])
     pbar.update(1)
 
-def search_double_ports_City18_DLINK():
-        username = input(f"{Fore.YELLOW}Enter Username: {Style.RESET_ALL}")
-        password = getpass.getpass(f"{Fore.YELLOW}Enter Password: {Style.RESET_ALL}")
+def search_double_ports_City17_cisco():
+        username = "user"
+        password = firstpassword
+        #password = getpass.getpass(f"{Fore.YELLOW}Enter Password: {Style.RESET_ALL}")
+        table = []
+        with open("ip_list_City17_cisco.txt", "r") as f:
+            ip_list = f.read().splitlines()
 
+        pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+        threads = []
+        for switch_ip in ip_list:
+            t = Thread(target=connect_to_switch_search_double_cisco, args=(switch_ip, username, password, table, pbar))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+        pbar.close()
+
+        # Сортируем таблицу по номеру порта для сравнения в будущем, что если адрес коммутатора и номер порта совпадает
+        # с предыдущим значением в массиве, то на порту больше одного мак адреса.
+        # А это потенциально неуправляйка.
+        sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+        # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+        uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+        # убираем все строки, относящиеся к этим интерфейсам
+        sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+        # Фильтруем массив, исключая все порты UPLINK
+        # Помечаем порт как MARK
+
+        sorted_table = sorted(sorted_table, key=lambda x: x[4])
+        # Считаем, сколько записей (MAC-адресов) на каждом порту
+        counts = Counter(port_key(row) for row in sorted_table)
+        HOLD = 2  # если MAC-адресов БОЛЬШЕ этого значения
+        result = []
+        for row in sorted_table:
+            row = list(row)
+            if counts[port_key(row)] > HOLD:
+                row[4] = "MARK"
+            result.append(row)
+
+        print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
+        sorted_result = sorted(result, key=lambda x: x[0])
+        sorted_result = list(filter(lambda x: 'MARK' in x[4], sorted_result))
+
+        print(tabulate.tabulate(sorted_result, headers="firstrow", tablefmt="fancy_grid"))
+
+def search_double_ports_City17_H3C():
+        username = "user"
+        password = firstpassword
+        table = []
+        with open("ip_list_City17_H3C.txt", "r") as f:
+            ip_list = f.read().splitlines()
+
+        pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+        threads = []
+        for switch_ip in ip_list:
+            t = Thread(target=connect_to_switch_search_double_H3C, args=(switch_ip, username, password, table, pbar))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+        pbar.close()
+
+        sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+        # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+        uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+        # убираем все строки, относящиеся к этим интерфейсам
+        sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+        sorted_table = sorted(sorted_table, key=lambda x: x[4])
+        counts = Counter(port_key(row) for row in sorted_table)
+        HOLD = 2
+        result = []
+        for row in sorted_table:
+            row = list(row)
+            if counts[port_key(row)] > HOLD:
+                row[4] = "MARK"
+            result.append(row)
+
+        print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
+        sorted_result = sorted(result, key=lambda x: x[0])
+        sorted_result = list(filter(lambda x: 'MARK' in x[4], sorted_result))
+
+        print(tabulate.tabulate(sorted_result, headers="firstrow", tablefmt="fancy_grid"))
+
+def search_mac_City17():
+    username = "user"
+    password = firstpassword
+    mac_address = input(f"{Fore.CYAN}Введите MAC-адрес устройства (например последний октет): {Style.RESET_ALL}").strip()
+
+    # City17 Cisco search mac strat 
+    headers = ["Switch IP", "MAC Address", "Vlan", "Type", "Ports"]
+    table = []
+    with open("ip_list_City17_cisco.txt", "r") as f:
+        ip_list = f.read().splitlines()
+
+    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+    threads = []
+    for switch_ip in ip_list:
+        t = Thread(target=connect_to_switch_with_mac_cisco, args=(switch_ip, username, password, table, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    pbar.close()
+
+    sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска на коммутаторах Cisco City17:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+    # City17 Cisco search mac end 
+
+    # City17 H3C search mac strat 
+    table = []
+    with open("ip_list_City17_H3C.txt", "r") as f:
+        ip_list = f.read().splitlines()
+
+    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+    threads = []
+    for switch_ip in ip_list:
+        t = Thread(target=connect_to_switch_with_mac_H3C, args=(switch_ip, username, password, table, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    pbar.close()
+
+    sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска на коммутаторах H3C City17:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+    # City17 H3C search mac end 
+
+def search_double_ports_City18_DLINK():
+        username = "user"
+        password = firstpassword
         table = []
         with open("ip_list_City18_DLINK.txt", "r") as f:
             ip_list = f.read().splitlines()
@@ -393,30 +424,43 @@ def search_double_ports_City18_DLINK():
             t.join()
         pbar.close()
 
-        sorted_table = sorted(table, key=lambda x: x[4])
+        sorted_table = sorted(table, key=lambda x: x[0])
 
-        matrix = np.array(sorted_table)
-        result = matrix.copy()
-        for i in range(len(matrix)):
-            a = matrix[i][4]
-            b = matrix[i][2]
-            c = matrix[i][0]
-            if a != matrix[i - 1][4] and b != matrix[i - 1][2] and c != matrix[i - 1][0]:
-                result[i][4] = a
-            if a == matrix[i - 1][4] and b == matrix[i - 1][2] and c == matrix[i - 1][0]:
-                result[i -1][4] = "DOUBLE"
-                result[i][4] = "DOUBLE"
+    # Фильтруем аплинки, чтобы исключить их из таблицы
+
+        # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+        uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN_1}
+
+        # убираем все строки, относящиеся к этим интерфейсам
+        sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+        # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+        uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+        # убираем все строки, относящиеся к этим интерфейсам
+        sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+        sorted_table = sorted(sorted_table, key=lambda x: x[4])
+        counts = Counter(port_key(row) for row in sorted_table)
+        HOLD = 2
+        result = []
+        for row in sorted_table:
+            row = list(row)
+            if counts[port_key(row)] > HOLD:
+                row[4] = "MARK"
+            result.append(row)
 
         print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
         sorted_result = sorted(result, key=lambda x: x[0])
-        sorted_result = list(filter(lambda x: 'DOUBLE' in x[4], sorted_result))
+        sorted_result = list(filter(lambda x: 'MARK' in x[4], sorted_result))
 
         print(tabulate.tabulate(sorted_result, headers="firstrow", tablefmt="fancy_grid"))
 
 def search_double_ports_City18_cisco():
-        username = input(f"{Fore.YELLOW}Enter Username: {Style.RESET_ALL}")
-        password = getpass.getpass(f"{Fore.YELLOW}Enter Password: {Style.RESET_ALL}")
-
+        username = "user"
+        password = firstpassword
         table = []
         with open("ip_list_City18_cisco.txt", "r") as f:
             ip_list = f.read().splitlines()
@@ -435,43 +479,39 @@ def search_double_ports_City18_cisco():
 
         sorted_table = sorted(table, key=lambda x: x[4])
 
-        # Фильтруем дополнительные аплинки, чтобы исключить их из поиска
-        matrix_fil = np.array(sorted_table)
-        result_fil = matrix_fil.copy()
-        for i in range(len(result_fil)):
-            a = '172.16.2.23'
-            b = 'Gi0/21'
-            if result_fil[i][0] == a and result_fil[i][4] == b:
-                result_fil[i][4] = "UPLINK"
+# Фильтруем аплинки, чтобы исключить их из таблицы
 
-        sorted_table = list(filter(lambda x: 'UPLINK' not in x[4], result_fil))
+        # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+        uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
 
-        matrix = np.array(sorted_table)
-        result = matrix.copy()
-        for i in range(len(matrix)):
-            a = matrix[i][4]
-            b = matrix[i][2]
-            c = matrix[i][0]
-            if a != matrix[i - 1][4] and b != matrix[i - 1][2] and c != matrix[i - 1][0]:
-                result[i][4] = a
-            if a == matrix[i - 1][4] and b == matrix[i - 1][2] and c == matrix[i - 1][0]:
-                result[i -1][4] = "DOUBLE"
-                result[i][4] = "DOUBLE"
+        # убираем все строки, относящиеся к этим интерфейсам
+        sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+        sorted_table = sorted(sorted_table, key=lambda x: x[4])
+        counts = Counter(port_key(row) for row in sorted_table)
+        HOLD = 2
+        result = []
+        for row in sorted_table:
+            row = list(row)
+            if counts[port_key(row)] > HOLD:
+                row[4] = "MARK"
+            result.append(row)
 
         print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
         sorted_result = sorted(result, key=lambda x: x[0])
-        sorted_result = list(filter(lambda x: 'DOUBLE' in x[4], sorted_result))
+        sorted_result = list(filter(lambda x: 'MARK' in x[4], sorted_result))
 
         print(tabulate.tabulate(sorted_result, headers="firstrow", tablefmt="fancy_grid"))
 
 def search_mac_City18_DLINK():
-    username = input(f"{Fore.YELLOW}Введите Username: {Style.RESET_ALL}")
-    password = getpass.getpass(f"{Fore.YELLOW}Введите Password: {Style.RESET_ALL}")
+    username = "user"
+    password = firstpassword
+    mac_address = input(f"{Fore.CYAN}Введите MAC-адрес устройства (например последний октет): {Style.RESET_ALL}").strip()
 
-
-    mac_address_DLINK = input(f"{Fore.CYAN}Введите MAC-адреса устройства в формате(00-11-22-33-44-55): {Style.RESET_ALL}").strip()
-
-    table = [["Switch IP", "MAC Address", "VLAN", "Port"]]
+    headers = ["Switch IP", "MAC Address", "VLAN", "NAME", "Port"]
+    table = []
     with open("ip_list_City18_DLINK.txt", "r") as f:
         ip_list = f.read().splitlines()
 
@@ -479,7 +519,7 @@ def search_mac_City18_DLINK():
 
     threads = []
     for switch_ip in ip_list:
-        t = Thread(target=connect_to_switch_with_mac_DLINK, args=(switch_ip, username, password, mac_address_DLINK, table, pbar))
+        t = Thread(target=connect_to_switch_with_mac_DLINK, args=(switch_ip, username, password, table, pbar))
         threads.append(t)
         t.start()
 
@@ -487,16 +527,36 @@ def search_mac_City18_DLINK():
         t.join()
     pbar.close()
 
-    print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
-    print(tabulate.tabulate(table, headers="firstrow", tablefmt="fancy_grid"))
+    sorted_table = sorted(table, key=lambda x: x[4])
 
-def search_mac_City18_cisco():
-    username = input(f"{Fore.YELLOW}Введите Username: {Style.RESET_ALL}")
-    password = getpass.getpass(f"{Fore.YELLOW}Введите Password: {Style.RESET_ALL}")
+# Фильтруем аплинки, чтобы исключить их из таблицы
 
-    mac_address_cisco = input(f"{Fore.CYAN}Введите минимум два значения от MAC-адреса устройства: {Style.RESET_ALL}").strip()
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
 
-    table = [["Switch IP", "MAC Address", "VLAN", "Port"]]
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска на коммутаторах D-Link City18:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+
+def search_mac_City18():
+    username = "user"
+    password = firstpassword
+    mac_address = input(f"{Fore.CYAN}Введите MAC-адрес устройства (например последний октет): {Style.RESET_ALL}").strip()
+
+    # City18 Cisco search start
+    headers = ["Switch IP", "MAC Address", "Vlan", "Type", "Ports"]
+    table = []
     with open("ip_list_City18_cisco.txt", "r") as f:
         ip_list = f.read().splitlines()
 
@@ -504,7 +564,7 @@ def search_mac_City18_cisco():
 
     threads = []
     for switch_ip in ip_list:
-        t = Thread(target=connect_to_switch_with_mac_cisco, args=(switch_ip, username, password, mac_address_cisco, table, pbar))
+        t = Thread(target=connect_to_switch_with_mac_cisco, args=(switch_ip, username, password, table, pbar))
         threads.append(t)
         t.start()
 
@@ -512,28 +572,120 @@ def search_mac_City18_cisco():
         t.join()
     pbar.close()
 
-    sorted_table = sorted(table, key=lambda x: x[3])
+    sorted_table = sorted(table, key=lambda x: x[4])
 
-    # Фильтруем дополнительные аплинки, чтобы исключить их из поиска
-    matrix_fil = np.array(sorted_table)
-    result_fil = matrix_fil.copy()
-    for i in range(len(result_fil)):
-        a = '172.16.2.23'
-        b = 'Gi0/21'
-        if result_fil[i][0] == a and result_fil[i][3] == b:
-            result_fil[i][3] = "UPLINK"
+# Фильтруем аплинки, чтобы исключить их из таблицы
 
-    sorted_table = list(filter(lambda x: 'UPLINK' not in x[3], result_fil))
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска на коммутаторах Cisco City18:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+    # City18 Cisco search end
+
+    # City18 H3C search start
+    table = []
+    with open("ip_list_City18_H3C.txt", "r") as f:
+        ip_list = f.read().splitlines()
+
+    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+    threads = []
+    for switch_ip in ip_list:
+        t = Thread(target=connect_to_switch_with_mac_H3C, args=(switch_ip, username, password, table, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    pbar.close()
+
+    sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    matrix = np.array(sorted_table)
+    result = matrix.copy()
+    for i in range(len(matrix)):
+        c = matrix[i][4]
+
+        if matrix[i][1].endswith(mac_address):
+            result[i][4] = c
+        else:
+            result[i][4] = "NOTMAC"
+
+    sorted_table = list(filter(lambda x: 'NOTMAC' not in x[4], result))
 
     sorted_result = sorted(sorted_table, key=lambda x: x[0])
 
-    print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
-    print(tabulate.tabulate(sorted_result, headers="firstrow", tablefmt="fancy_grid"))
+    print(f"{Fore.GREEN}Результат поиска на коммутаторах H3C City18:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+    # City18 H3C search end
+
+    # City18 D-Link search start
+    headersdlink = ["Switch IP", "MAC Address", "VLAN", "NAME", "Port"]
+    table = []
+    with open("ip_list_City18_DLINK.txt", "r") as f:
+        ip_list = f.read().splitlines()
+
+    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+    threads = []
+    for switch_ip in ip_list:
+        t = Thread(target=connect_to_switch_with_mac_DLINK, args=(switch_ip, username, password, table, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    pbar.close()
+
+    sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска на коммутаторах D-Link City18:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headersdlink, tablefmt="fancy_grid"))
+    # City18 D-Link search end
 
 def search_double_ports_City19_cisco():
-        username = input(f"{Fore.YELLOW}Enter Username: {Style.RESET_ALL}")
-        password = getpass.getpass(f"{Fore.YELLOW}Enter Password: {Style.RESET_ALL}")
-
+        username = "user"
+        password = firstpassword
         table = []
         with open("ip_list_City19_cisco.txt", "r") as f:
             ip_list = f.read().splitlines()
@@ -552,42 +704,87 @@ def search_double_ports_City19_cisco():
 
         sorted_table = sorted(table, key=lambda x: x[4])
 
-        # Фильтруем дополнительные аплинки, чтобы исключить их из поиска
-        matrix_fil = np.array(sorted_table)
-        result_fil = matrix_fil.copy()
-        for i in range(len(result_fil)):
-            a = '10.24.2.244'
-            b = 'Gi1/0/22'
-            if result_fil[i][0] == a and result_fil[i][4] == b:
-                result_fil[i][4] = "UPLINK"
+# Фильтруем аплинки, чтобы исключить их из таблицы
 
-        sorted_table = list(filter(lambda x: 'UPLINK' not in x[4], result_fil))
+        # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+        uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
 
-        matrix = np.array(sorted_table)
-        result = matrix.copy()
-        for i in range(len(matrix)):
-            a = matrix[i][4] # № порта
-            b = matrix[i][2] # № VLAN
-            c = matrix[i][0] # IP адрес коммутатора
-            if a != matrix[i - 1][4] and b != matrix[i - 1][2] and c != matrix[i - 1][0]:
-                result[i][4] = a
-            if a == matrix[i - 1][4] and b == matrix[i - 1][2] and c == matrix[i - 1][0]:
-                result[i -1][4] = "DOUBLE"
-                result[i][4] = "DOUBLE"
+        # убираем все строки, относящиеся к этим интерфейсам
+        sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+        sorted_table = sorted(sorted_table, key=lambda x: x[4])
+        counts = Counter(port_key(row) for row in sorted_table)
+        HOLD = 2
+        result = []
+        for row in sorted_table:
+            row = list(row)
+            if counts[port_key(row)] > HOLD:
+                row[4] = "MARK"
+            result.append(row)
 
         print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
         sorted_result = sorted(result, key=lambda x: x[0])
-        sorted_result = list(filter(lambda x: 'DOUBLE' in x[4], sorted_result))
+        sorted_result = list(filter(lambda x: 'MARK' in x[4], sorted_result))
 
         print(tabulate.tabulate(sorted_result, headers="firstrow", tablefmt="fancy_grid"))
 
-def search_mac_City19_cisco():
-    username = input(f"{Fore.YELLOW}Введите Username: {Style.RESET_ALL}")
-    password = getpass.getpass(f"{Fore.YELLOW}Введите Password: {Style.RESET_ALL}")
+def search_double_ports_City19_H3C():
+        username = "user"
+        password = firstpassword
+        table = []
+        with open("ip_list_City19_H3C.txt", "r") as f:
+            ip_list = f.read().splitlines()
 
-    mac_address_cisco = input(f"{Fore.CYAN}Введите минимум два значения от MAC-адреса устройства: {Style.RESET_ALL}").strip()
+        pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
 
-    table = [["Switch IP", "MAC Address", "VLAN", "Port"]]
+        threads = []
+        for switch_ip in ip_list:
+            t = Thread(target=connect_to_switch_search_double_H3C, args=(switch_ip, username, password, table, pbar))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+        pbar.close()
+
+        sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+        # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+        uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+        # убираем все строки, относящиеся к этим интерфейсам
+        sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+        sorted_table = sorted(sorted_table, key=lambda x: x[4])
+        counts = Counter(port_key(row) for row in sorted_table)
+        HOLD = 2
+        result = []
+        for row in sorted_table:
+            row = list(row)
+            if counts[port_key(row)] > HOLD:
+                row[4] = "MARK"
+            result.append(row)
+
+        print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
+        sorted_result = sorted(result, key=lambda x: x[0])
+        sorted_result = list(filter(lambda x: 'MARK' in x[4], sorted_result))
+
+        print(tabulate.tabulate(sorted_result, headers="firstrow", tablefmt="fancy_grid"))
+
+def search_mac_City19():
+    username = "user"
+    password = firstpassword
+    mac_address = input(f"{Fore.CYAN}Введите MAC-адрес устройства (например последний октет): {Style.RESET_ALL}").strip()
+
+    # City19 cisco search start
+    headers = ["Switch IP", "MAC Address", "Vlan", "Type", "Ports"]
+    table = []
     with open("ip_list_City19_cisco.txt", "r") as f:
         ip_list = f.read().splitlines()
 
@@ -595,7 +792,7 @@ def search_mac_City19_cisco():
 
     threads = []
     for switch_ip in ip_list:
-        t = Thread(target=connect_to_switch_with_mac_cisco, args=(switch_ip, username, password, mac_address_cisco, table, pbar))
+        t = Thread(target=connect_to_switch_with_mac_cisco, args=(switch_ip, username, password, table, pbar))
         threads.append(t)
         t.start()
 
@@ -603,85 +800,403 @@ def search_mac_City19_cisco():
         t.join()
     pbar.close()
 
-    sorted_table = sorted(table, key=lambda x: x[3])
+    sorted_table = sorted(table, key=lambda x: x[4])
 
-    # Фильтруем дополнительные аплинки, чтобы исключить их из поиска
-    matrix_fil = np.array(sorted_table)
-    result_fil = matrix_fil.copy()
-    for i in range(len(result_fil)):
-        a = '10.24.2.244'
-        b = 'Gi1/0/22'
-        if result_fil[i][0] == a and result_fil[i][3] == b:
-            result_fil[i][3] = "UPLINK"
+# Фильтруем аплинки, чтобы исключить их из таблицы
 
-    sorted_table = list(filter(lambda x: 'UPLINK' not in x[3], result_fil))
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
 
-    sorted_result = sorted(sorted_table, key=lambda x: x[0])
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
 
-    print(f"{Fore.GREEN}Результат поиска:{Style.RESET_ALL}")
-    print(tabulate.tabulate(sorted_result, headers="firstrow", tablefmt="fancy_grid"))
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска на коммутаторах Cisco City19:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+    # City19 cisco search end
+
+    # City19 H3C search start
+    table = []
+    with open("ip_list_City19_H3C.txt", "r") as f:
+        ip_list = f.read().splitlines()
+
+    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+    threads = []
+    for switch_ip in ip_list:
+        t = Thread(target=connect_to_switch_with_mac_H3C, args=(switch_ip, username, password, table, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    pbar.close()
+
+    sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска на коммутаторах H3C City19:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+    # City19 H3C search end
+
+def search_mac_full():
+    username = "user"
+    password = firstpassword
+    mac_address = input(f"{Fore.CYAN}Введите MAC-адрес устройства (например последний октет): {Style.RESET_ALL}").strip()
+
+    ############ City17 Cisco
+    headers = ["Switch IP", "MAC Address", "Vlan", "Type", "Ports"]
+    table = []
+    with open("ip_list_City17_cisco.txt", "r") as f:
+        ip_list = f.read().splitlines()
+
+    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+    threads = []
+    for switch_ip in ip_list:
+        t = Thread(target=connect_to_switch_with_mac_cisco, args=(switch_ip, username, password, table, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    pbar.close()
+
+    sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска City17 Cisco:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+
+    ############ City17 H3C
+    table = []
+    with open("ip_list_City17_H3C.txt", "r") as f:
+        ip_list = f.read().splitlines()
+
+    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+    threads = []
+    for switch_ip in ip_list:
+        t = Thread(target=connect_to_switch_with_mac_H3C, args=(switch_ip, username, password, table, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    pbar.close()
+
+    sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска City17 H3C:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+
+    ############ City18 DLINK
+    table = []
+    with open("ip_list_City18_DLINK.txt", "r") as f:
+        ip_list = f.read().splitlines()
+
+    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+    threads = []
+    for switch_ip in ip_list:
+        t = Thread(target=connect_to_switch_with_mac_DLINK, args=(switch_ip, username, password, table, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    pbar.close()
+
+    sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска на коммутаторах D-Link City18:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+
+
+    ############ City18 Cisco
+    table = []
+    with open("ip_list_City18_cisco.txt", "r") as f:
+        ip_list = f.read().splitlines()
+
+    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+    threads = []
+    for switch_ip in ip_list:
+        t = Thread(target=connect_to_switch_with_mac_cisco, args=(switch_ip, username, password, table, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    pbar.close()
+
+    sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска City18 Cisco:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+
+    ############ City18 H3C
+    table = []
+    with open("ip_list_City18_H3C.txt", "r") as f:
+        ip_list = f.read().splitlines()
+
+    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+    threads = []
+    for switch_ip in ip_list:
+        t = Thread(target=connect_to_switch_with_mac_H3C, args=(switch_ip, username, password, table, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    pbar.close()
+
+    sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска City18 H3C:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+
+    ############ City19 Cisco
+    table = []
+    with open("ip_list_City19_cisco.txt", "r") as f:
+        ip_list = f.read().splitlines()
+
+    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+    threads = []
+    for switch_ip in ip_list:
+        t = Thread(target=connect_to_switch_with_mac_cisco, args=(switch_ip, username, password, table, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    pbar.close()
+
+    sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска City19 Cisco:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+
+    ############ City19 H3C
+    table = []
+    with open("ip_list_City19_H3C.txt", "r") as f:
+        ip_list = f.read().splitlines()
+
+    pbar = tqdm(total=len(ip_list), desc="🔗 Подключение к коммутаторам")
+
+    threads = []
+    for switch_ip in ip_list:
+        t = Thread(target=connect_to_switch_with_mac_H3C, args=(switch_ip, username, password, table, pbar))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+    pbar.close()
+
+    sorted_table = sorted(table, key=lambda x: x[4])
+
+# Фильтруем аплинки, чтобы исключить их из таблицы
+
+    # (коммутатор, интерфейс), на которых виден MAC из VLAN 2
+    uplinks = {(row[0], row[4]) for row in sorted_table if row[2] == UPLINK_VLAN}
+
+    # убираем все строки, относящиеся к этим интерфейсам
+    sorted_table = [row for row in sorted_table if (row[0], row[4]) not in uplinks]
+
+# Конец фильтрации UPLINK
+
+    target = normalize_mac(mac_address)
+
+    sorted_result = [
+        row for row in sorted_table
+        if normalize_mac(row[1]).endswith(target)
+    ]
+
+    print(f"{Fore.GREEN}Результат поиска City19 H3C:{Style.RESET_ALL}")
+    print(tabulate.tabulate(sorted_result, headers=headers, tablefmt="fancy_grid"))
+
 
 def main():
     print(f"{Fore.CYAN}MAC address Tool{Style.RESET_ALL}")
     
     main_menu = f'Выберете действие:\n' \
-                f'\t{Style.RESET_ALL}1. Найти неуправляемые {Style.BRIGHT + Fore.YELLOW}коммутаторы в City17 (Cisco)\n' \
-                f'\t{Style.RESET_ALL}2. Найти неуправляемые {Style.BRIGHT + Fore.YELLOW}коммутаторы в City17 (H3C)\n' \
-                f'\t{Style.RESET_ALL}3. Найти порт коммутатора по {Style.BRIGHT + Fore.YELLOW}MAC в City17 (Cisco)\n' \
-                f'\t{Style.RESET_ALL}4. Найти порт коммутатора по {Style.BRIGHT + Fore.YELLOW}MAC в City17 (H3C)\n' \
-                f'\t{Style.RESET_ALL}5. Найти неуправляемые {Style.BRIGHT + Fore.YELLOW}коммутаторы в City18 (D-Link)\n' \
-                f'\t{Style.RESET_ALL}6. Найти неуправляемые {Style.BRIGHT + Fore.YELLOW}коммутаторы в City18 (Cisco)\n' \
-                f'\t{Style.RESET_ALL}7. Найти порт коммутатора по {Style.BRIGHT + Fore.YELLOW}MAC в City18 (D-Link)\n' \
-                f'\t{Style.RESET_ALL}8. Найти порт коммутатора по {Style.BRIGHT + Fore.YELLOW}MAC в City18 (Cisco)\n' \
-                f'\t{Style.RESET_ALL}9. Найти неуправляемые {Style.BRIGHT + Fore.YELLOW}коммутаторы в City19 (Cisco)\n' \
-                f'\t{Style.RESET_ALL}10. Найти порт коммутатора по {Style.BRIGHT + Fore.YELLOW}MAC в City19 (Cisco)\n' \
+                f'\t{Style.RESET_ALL}1. Найти неуправляемые {Style.BRIGHT + Fore.YELLOW}коммутаторы в City17 (Cisco, H3C)\n' \
+                f'\t{Style.RESET_ALL}11. Найти порт коммутатора по {Style.BRIGHT + Fore.YELLOW}MAC в City17\n' \
+                f'\t \n' \
+                f'\t{Style.RESET_ALL}2. Найти неуправляемые {Style.BRIGHT + Fore.YELLOW}коммутаторы в City18 (D-Link, Cisco, H3C)\n' \
+                f'\t{Style.RESET_ALL}21. Найти порт коммутатора по {Style.BRIGHT + Fore.YELLOW}MAC в City18\n' \
+                f'\t \n' \
+                f'\t{Style.RESET_ALL}3. Найти неуправляемые {Style.BRIGHT + Fore.YELLOW}коммутаторы в City19 (Cisco, H3C)\n' \
+                f'\t{Style.RESET_ALL}31. Найти порт коммутатора по {Style.BRIGHT + Fore.YELLOW}MAC в City19\n' \
+                f'\t \n' \
+                f'\t{Style.RESET_ALL}99. Найти порт коммутатора по {Style.BRIGHT + Fore.YELLOW}всем филиалам\n' \
+                f'\t \n' \
                 f'\t{Style.RESET_ALL}100. Найти IP адрес по {Style.BRIGHT + Fore.YELLOW}MAC в City17\n' \
                 f'\t{Style.RESET_ALL}101. Найти IP адрес по {Style.BRIGHT + Fore.YELLOW}MAC в City18\n' \
-                f'\t{Style.RESET_ALL}102. Найти IP адрес по {Style.BRIGHT + Fore.YELLOW}MAC в City19\n' \
-                f'\t{Style.RESET_ALL}103. Найти IP адрес по {Style.BRIGHT + Fore.YELLOW}MAC в City20\n' \
+                f'\t{Style.RESET_ALL}102. Найти IP адрес по {Style.BRIGHT + Fore.YELLOW}MAC в City19\n' 
     while True:
+        
         print(Style.RESET_ALL + main_menu)
         choice = input(f'{Style.RESET_ALL}Ваш выбор: ')
 
         if choice == '1':
-            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск неуправляемых коммутаторов в City17 (Cisco)')
+            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск неуправляемых коммутаторов в City17 (Cisco, H3C)')
             search_double_ports_City17_cisco()
-
-        elif choice == '2':
-            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск неуправляемых коммутаторов в City17 (H3C)')
             search_double_ports_City17_H3C()
 
-        elif choice == '3':
-            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск порта по mac-адресу на коммутаторах в City17 (Cisco)')
-            search_mac_City17_cisco()
+        elif choice == '11':
+            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск порта по mac-адресу на коммутаторах в City17')
+            search_mac_City17()
 
-        elif choice == '4':
-            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск порта по mac-адресу на коммутаторах в City17 (H3C)')
-            search_mac_City17_H3C()
-
-        elif choice == '5':
-            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск неуправляемых коммутаторов в City18 (D-Link)')
+        elif choice == '2':
+            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск неуправляемых коммутаторов в City18 (D-Link, Cisco, H3C)')
             search_double_ports_City18_DLINK()
-
-        elif choice == '6':
-            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск неуправляемых коммутаторов в City18 (Cisco)')
             search_double_ports_City18_cisco()
 
-        elif choice == '7':
-            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск порта по mac-адресу на коммутаторах в City18 (D-Link)')
-            search_mac_City18_DLINK()
+        elif choice == '21':
+            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск порта по mac-адресу на коммутаторах в City18')
+            search_mac_City18()
 
-        elif choice == '8':
-            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск порта по mac-адресу на коммутаторах в City18 (Cisco)')
-            search_mac_City18_cisco()
-
-        elif choice == '9':
-            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск неуправляемых коммутаторов в City19 (Cisco)')
+        elif choice == '3':
+            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск неуправляемых коммутаторов в City19 (Cisco, H3C)')
             search_double_ports_City19_cisco()
+            search_double_ports_City19_H3C()
 
-        elif choice == '10':
-            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск порта по mac-адресу на коммутаторах в City19 (Cisco)')
-            search_mac_City19_cisco()
+        elif choice == '31':
+            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск порта по mac-адресу на коммутаторах в City19')
+            search_mac_City19()
+
+        elif choice == '99':
+            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск порта по mac-адресу на коммутаторах всех филиалов')
+            search_mac_full()
 
         elif choice == '100':
             print(Fore.YELLOW + Style.BRIGHT + '\nПоиск IP адреса по mac-адресу в City17')
@@ -694,10 +1209,6 @@ def main():
         elif choice == '102':
             print(Fore.YELLOW + Style.BRIGHT + '\nПоиск IP адреса по mac-адресу в City19')
             search_ip_City19()
-
-        elif choice == '103':
-            print(Fore.YELLOW + Style.BRIGHT + '\nПоиск IP адреса по mac-адресу в City20')
-            search_ip_City20()
 
         else:
             pass
